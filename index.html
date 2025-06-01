@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quản Lý Sơ Đồ</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2"></script>
+  <style>
+    .gradient-bg {
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    }
+    .hover-scale {
+      transition: all 0.2s ease-in-out;
+    }
+    .schematic-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+    .schematic-card a:hover {
+      color: #1d4ed8;
+    }
+    .schematic-card img {
+      object-fit: contain;
+      max-width: 100%;
+      max-height: 100%;
+    }
+    .skeleton {
+      background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+      background-size: 200% 100%;
+      animation: skeleton-loading 1.5s infinite, pulse 2s infinite;
+      border-radius: 4px;
+    }
+    @keyframes skeleton-loading {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+    .filter-btn {
+      position: relative;
+      overflow: hidden;
+    }
+    .filter-btn.active {
+      background-color: #ffffff;
+      color: #3b82f6;
+      font-weight: 600;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    .filter-btn::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: #3b82f6;
+      transform: scaleX(0);
+      transform-origin: bottom right;
+      transition: transform 0.3s ease-out;
+    }
+    .filter-btn.active::after {
+      transform: scaleX(1);
+      transform-origin: bottom left;
+    }
+    .error-message {
+      animation: slideIn 0.3s ease-out;
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    #searchInput:focus {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+    #searchInput:not(:placeholder-shown) + #clearSearch {
+      display: block !important;
+    }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans text-gray-900">
+  <!-- Navbar -->
+  <nav class="gradient-bg text-white p-4 sticky top-0 z-10 shadow-lg">
+    <div class="container mx-auto flex flex-wrap justify-between items-center">
+      <h1 class="text-2xl font-bold">Quản Lý Sơ Đồ</h1>
+      <div id="filterButtons" class="flex flex-wrap space-x-2 mt-2 sm:mt-0">
+        <button id="filterAll" class="px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 filter-btn active">Tất cả</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Nội dung chính -->
+  <div class="container mx-auto p-4">
+    <!-- Thanh tìm kiếm -->
+    <div class="mb-6 relative">
+      <div class="relative">
+        <input id="searchInput" type="text" placeholder="Tìm kiếm sơ đồ (tên, loại: PDF, CAD, FZ, hoặc dung lượng: 1.5 MB...)" 
+               class="w-full p-3 pl-10 pr-10 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 bg-white">
+        <svg class="absolute left-3 top-3.5 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+        <button id="clearSearch" class="absolute right-3 top-3.5 h-5 w-5 text-gray-400 hover:text-gray-600 hidden">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Loading spinner -->
+    <div id="loading" class="hidden text-center">
+      <div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"></div>
+      <p class="mt-2 text-gray-600">Đang tải dữ liệu...</p>
+    </div>
+
+    <!-- Danh sách sơ đồ -->
+    <div id="schematicList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+  </div>
+
+  <script>
+    // Hàm tiện ích
+    const debounce = (func, wait) => {
+      let timeout;
+      return (...args) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func(...args), wait);
+      };
+    };
+
+    // Giải mã HTML entities
+    const decodeHTMLEntities = (text) => {
+      const textarea = document.createElement('textarea');
+      textarea.innerHTML = text;
+      return textarea.value;
+    };
+
+    // Chuẩn hóa văn bản
+    const normalizeText = str => {
+      if (typeof str !== 'string') return '';
+      return str
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, '');
+    };
+
+    // Lấy phần mở rộng file
+    const getFileType = item => {
+      const name = item.name || '';
+      const extensionMatch = name.match(/\.([a-zA-Z0-9]+)$/i);
+      return extensionMatch ? `File ${extensionMatch[1].toUpperCase()}` : 'File UNKNOWN';
+    };
+
+    // Lấy đường dẫn biểu tượng cục bộ
+    const getFileIconPath = (type) => {
+      const normalizedType = type.toUpperCase().replace('FILE ', '');
+      const icons = {
+        PDF: 'icons/PDF.png',
+        RAR: 'icons/rar.png',
+        ZIP: 'icons/zip.png',
+        CAD: 'icons/cad.png',
+        TVW: 'icons/tvw.png',
+        FZ: 'icons/Fz.png',
+        BRD: 'icons/brd.png',
+        BDV: 'icons/BDV.png',
+        UNKNOWN: 'icons/file.png'
+      };
+      return icons[normalizedType] || icons.UNKNOWN;
+    };
+
+    // Highlight từ khóa
+    const highlightAllKeywords = (text, rawQuery) => {
+      if (!rawQuery || !text) return text;
+
+      const keywords = rawQuery.trim().split(/\s+/).filter(Boolean);
+      let result = text;
+
+      keywords.forEach(keyword => {
+        const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`(${escapedKeyword})(?![^<]*>)`, 'ig');
+        let tempResult = '';
+        let lastIndex = 0;
+        let match;
+
+        while ((match = regex.exec(result)) !== null) {
+          const before = result.slice(lastIndex, match.index);
+          const matchedText = match[1];
+          tempResult += before + `<mark class="bg-yellow-200">${matchedText}</mark>`;
+          lastIndex = match.index + match[0].length;
+        }
+        tempResult += result.slice(lastIndex);
+        result = tempResult;
+      });
+
+      return result;
+    };
+
+    // Hiển thị danh sách sơ đồ
+    const displaySchematics = (schematics, rawQuery = '') => {
+      const list = document.getElementById('schematicList');
+      list.innerHTML = '';
+      if (!schematics.length) {
+        list.innerHTML = '<p class="text-center text-gray-500 col-span-full">Không tìm thấy sơ đồ.</p>';
+        return;
+      }
+      schematics.forEach(schematic => {
+        const name = highlightAllKeywords(schematic.name || 'Không xác định', rawQuery);
+        const type = getFileType(schematic);
+        const size = schematic.size || 'Không xác định';
+        const div = document.createElement('div');
+        div.className = 'bg-white p-4 rounded-lg shadow hover-scale border border-gray-100 schematic-card';
+        div.innerHTML = `
+          <div class="flex items-start space-x-4">
+            <div class="flex-shrink-0">
+              <img src="${getFileIconPath(type)}" alt="Biểu tượng ${type}" class="h-10 w-10">
+            </div>
+            <div class="flex-1 min-w-0">
+              <h2 class="text-lg font-semibold truncate" title="${schematic.name}">${name}</h2>
+              <p class="text-sm text-gray-500">Loại: ${type}</p>
+              <p class="text-sm text-gray-500">Dung lượng: ${size}</p>
+              <a href="${schematic.url || '#'}" target="_blank" 
+                 class="text-blue-500 hover:underline mt-2 inline-block font-medium transition-colors duration-200 
+                 ${!schematic.url ? 'pointer-events-none opacity-50' : ''}">
+                Tải xuống
+              </a>
+            </div>
+          </div>
+        `;
+        list.appendChild(div);
+      });
+    };
+
+    // Hiển thị skeleton UI
+    const showSkeleton = () => {
+      const list = document.getElementById('schematicList');
+      list.innerHTML = '';
+      for (let i = 0; i < 6; i++) {
+        const div = document.createElement('div');
+        div.className = 'bg-white p-4 rounded-lg shadow border border-gray-100';
+        div.innerHTML = `
+          <div class="flex items-start space-x-4">
+            <div class="h-10 w-10 skeleton rounded"></div>
+            <div class="flex-1 space-y-2">
+              <div class="h-6 w-3/4 skeleton"></div>
+              <div class="h-4 w-1/2 skeleton"></div>
+              <div class="h-4 w-1/2 skeleton"></div>
+              <div class="h-4 w-1/3 skeleton"></div>
+            </div>
+          </div>
+        `;
+        list.appendChild(div);
+      }
+    };
+
+    // Cấu hình Fuse.js
+    const fuseOptions = {
+      keys: ['searchKey', 'fileType', 'size'],
+      threshold: 0.3,
+      ignoreLocation: true,
+      minMatchCharLength: 2,
+      useExtendedSearch: true,
+      includeScore: true
+    };
+
+    // Cache tìm kiếm
+    const searchCache = new Map();
+
+    // Tải danh sách file và dữ liệu từ các file .json
+    const loadData = async () => {
+      const loading = document.getElementById('loading');
+      const list = document.getElementById('schematicList');
+      loading.classList.remove('hidden');
+      showSkeleton();
+
+      try {
+        // Lấy danh sách file từ fileList.json
+        const fileListResponse = await fetch('fileList.json');
+        if (!fileListResponse.ok) throw new Error(`Lỗi HTTP khi lấy danh sách file: ${fileListResponse.status}`);
+        const fileList = await fileListResponse.json();
+
+        if (!Array.isArray(fileList) || !fileList.length) {
+          throw new Error('Danh sách file trống hoặc không đúng định dạng');
+        }
+
+        // Lọc chỉ lấy các file có đuôi .json
+        const jsonFiles = fileList.filter(file => file.endsWith('.json'));
+
+        if (!jsonFiles.length) {
+          throw new Error('Không tìm thấy file .json nào trong danh sách');
+        }
+
+        // Đọc nội dung từng file
+        const filePromises = jsonFiles.map(async (file) => {
+          try {
+            const response = await fetch(file);
+            if (!response.ok) throw new Error(`Lỗi HTTP khi lấy file ${file}: ${response.status}`);
+            const data = await response.json();
+            if (!Array.isArray(data)) throw new Error(`Dữ liệu trong ${file} không đúng định dạng`);
+            return data;
+          } catch (error) {
+            console.error(`Lỗi khi đọc file ${file}:`, error);
+            return [];
+          }
+        });
+
+        // Chờ tất cả file được đọc
+        const allData = await Promise.all(filePromises);
+
+        // Hợp nhất dữ liệu từ tất cả các file
+        const schematics = allData.flat().map(item => ({
+          ...item,
+          name: decodeHTMLEntities(item.name || 'Không xác định'),
+          searchKey: normalizeText(item.name || ''),
+          fileType: normalizeText(getFileType(item).replace('File ', '')),
+          size: item.size || 'Không xác định',
+          url: item.url || ''
+        }));
+
+        if (!schematics.length) {
+          throw new Error('Không có dữ liệu hợp lệ từ các file');
+        }
+
+        window.schematics = schematics;
+        window.fuse = new Fuse(schematics, fuseOptions);
+
+        const fileTypes = [...new Set(schematics.map(item => getFileType(item)))].sort();
+        const filterButtons = document.getElementById('filterButtons');
+        fileTypes.forEach(type => {
+          const normalizedType = normalizeText(type).replace('file ', '');
+          const count = schematics.filter(item => normalizeText(getFileType(item)).replace('file ', '') === normalizedType).length;
+          const button = document.createElement('button');
+          button.className = 'px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 filter-btn flex items-center space-x-1 transition-all duration-200';
+          button.innerHTML = `
+            <span>${type}</span>
+            <span class="bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">${count}</span>
+          `;
+          button.dataset.type = normalizedType;
+          button.addEventListener('click', () => {
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            button.classList.add('active');
+            filterSchematics(normalizedType);
+          });
+          filterButtons.appendChild(button);
+        });
+
+        displaySchematics(schematics);
+      } catch (error) {
+        console.error('Lỗi tải dữ liệu:', error);
+        list.innerHTML = `
+          <p class="text-red-500 text-center col-span-full error-message">
+            Lỗi: Không thể tải dữ liệu. Vui lòng kiểm tra kết nối hoặc file fileList.json.
+          </p>`;
+      } finally {
+        loading.classList.add('hidden');
+      }
+    };
+
+    // Xử lý tìm kiếm
+    const handleSearch = debounce((rawQuery) => {
+      const query = normalizeText(rawQuery);
+      const list = document.getElementById('schematicList');
+
+      if (!window.schematics) {
+        list.innerHTML = '<p class="text-center text-gray-500 col-span-full">Dữ liệu chưa được tải.</p>';
+        return;
+      }
+
+      if (!query) {
+        searchCache.clear();
+        displaySchematics(window.schematics, rawQuery);
+        return;
+      }
+
+      if (searchCache.has(query)) {
+        displaySchematics(searchCache.get(query), rawQuery);
+        return;
+      }
+
+      const keywords = query.split(/\s+/).filter(Boolean);
+      const searchQuery = keywords.map(kw => `'${kw}`).join(' ');
+      const results = window.fuse.search(searchQuery)
+        .map(r => r.item)
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      searchCache.set(query, results);
+      if (searchCache.size > 100) {
+        searchCache.delete(searchCache.keys().next().value);
+      }
+
+      displaySchematics(results, rawQuery);
+    }, 300);
+
+    // Gắn sự kiện tìm kiếm và xóa
+    document.getElementById('searchInput').addEventListener('input', e => {
+      const clearButton = document.getElementById('clearSearch');
+      clearButton.classList.toggle('hidden', !e.target.value);
+      handleSearch(e.target.value.trim());
+    });
+
+    document.getElementById('clearSearch').addEventListener('click', () => {
+      const searchInput = document.getElementById('searchInput');
+      searchInput.value = '';
+      searchInput.focus();
+      handleSearch('');
+    });
+
+    // Xử lý lọc theo loại file
+    const filterSchematics = type => {
+      if (!window.schematics) return;
+      const filtered = type === 'all'
+        ? window.schematics
+        : window.schematics.filter(item => normalizeText(getFileType(item)).replace('file ', '') === type);
+      displaySchematics(filtered);
+    };
+
+    document.getElementById('filterAll').addEventListener('click', () => {
+      document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+      document.getElementById('filterAll').classList.add('active');
+      filterSchematics('all');
+    });
+
+    // Khởi động
+    loadData();
+  </script>
+</body>
+</html>
