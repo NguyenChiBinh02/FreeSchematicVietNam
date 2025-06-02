@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Quản Lý Sơ Đồ</title>
+  <title>Schematic Việt Nam</title>
+  <link rel="icon" type="image/x-icon" href="icons/vietnam.png">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2"></script>
   <style>
@@ -79,14 +80,60 @@
     #searchInput:not(:placeholder-shown) + #clearSearch {
       display: block !important;
     }
+    /* Điều chỉnh thanh tìm kiếm trong navbar */
+    #searchInput {
+      max-width: 600px;
+      padding: 0.5rem 2.5rem 0.5rem 2rem;
+      font-size: 0.9rem;
+      line-height: 1.5;
+      color: #111827; /* Màu chữ đậm để hiển thị rõ */
+      background-color: rgba(255, 255, 255, 0.95);
+      z-index: 1; /* Đảm bảo input ở trên các phần tử khác */
+    }
+    #searchInput::placeholder {
+      color: #6b7280;
+    }
+    #clearSearch {
+      top: 0.6rem;
+      right: 0.6rem;
+      z-index: 2; /* Nút xóa ở trên input */
+    }
+    .search-icon {
+      z-index: 2; /* Biểu tượng kính lúp ở trên input */
+    }
+    @media (max-width: 640px) {
+      #searchInput {
+        max-width: 100%;
+        margin-top: 0.5rem;
+      }
+    }
   </style>
 </head>
 <body class="bg-gray-50 min-h-screen font-sans text-gray-900">
   <!-- Navbar -->
   <nav class="gradient-bg text-white p-4 sticky top-0 z-10 shadow-lg">
-    <div class="container mx-auto flex flex-wrap justify-between items-center">
-      <h1 class="text-2xl font-bold">Quản Lý Sơ Đồ</h1>
-      <div id="filterButtons" class="flex flex-wrap space-x-2 mt-2 sm:mt-0">
+    <div class="container mx-auto flex flex-wrap justify-between items-center gap-4">
+      <h1 class="text-2xl font-bold flex items-center space-x-2">
+        <span>Schematic Free</span>
+        <span>Việt Nam</span>
+        <img src="./icons/vietnam.png" 
+             alt="Cờ Việt Nam" 
+             class="w-9 h-9 ml-2 inline-block rounded-sm shadow-sm" />
+      </h1>
+      <!-- Thanh tìm kiếm -->
+      <div class="relative flex-1 max-w-md">
+        <input id="searchInput" type="text" placeholder="Tìm kiếm sơ đồ (tên, loại: PDF, CAD, FZ...)" 
+               class="w-full p-2 pl-8 pr-8 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 bg-white">
+        <svg class="absolute left-2 top-2.5 h-4 w-4 text-gray-400 search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+        <button id="clearSearch" class="absolute right-2 top-2.5 h-4 w-4 text-gray-400 hover:text-gray-600 hidden">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <div id="filterButtons" class="flex flex-wrap space-x-2">
         <button id="filterAll" class="px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 filter-btn active">Tất cả</button>
       </div>
     </div>
@@ -94,22 +141,6 @@
 
   <!-- Nội dung chính -->
   <div class="container mx-auto p-4">
-    <!-- Thanh tìm kiếm -->
-    <div class="mb-6 relative">
-      <div class="relative">
-        <input id="searchInput" type="text" placeholder="Tìm kiếm sơ đồ (tên, loại: PDF, CAD, FZ, hoặc dung lượng: 1.5 MB...)" 
-               class="w-full p-3 pl-10 pr-10 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 bg-white">
-        <svg class="absolute left-3 top-3.5 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
-        <button id="clearSearch" class="absolute right-3 top-3.5 h-5 w-5 text-gray-400 hover:text-gray-600 hidden">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-    </div>
-
     <!-- Loading spinner -->
     <div id="loading" class="hidden text-center">
       <div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"></div>
@@ -173,30 +204,71 @@
 
     // Highlight từ khóa
     const highlightAllKeywords = (text, rawQuery) => {
-      if (!rawQuery || !text) return text;
+  if (!rawQuery || !text) return text;
 
-      const keywords = rawQuery.trim().split(/\s+/).filter(Boolean);
-      let result = text;
+  const keywords = rawQuery.trim().split(/\s+/).filter(Boolean);
+  let result = text;
 
-      keywords.forEach(keyword => {
-        const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`(${escapedKeyword})(?![^<]*>)`, 'ig');
-        let tempResult = '';
-        let lastIndex = 0;
-        let match;
+  // Tạo chuỗi hợp nhất từ các từ khóa (ví dụ: "hd 7900" → "hd7900")
+  const mergedKeyword = keywords.join('');
+  
+  // Highlight chuỗi hợp nhất (ví dụ: "hd7900" hoặc "HD7900")
+  if (mergedKeyword) {
+    const escapedMerged = mergedKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regexMerged = new RegExp(`(${escapedMerged})(?![^<]*>)`, 'ig');
+    let tempResult = '';
+    let lastIndex = 0;
+    let match;
 
-        while ((match = regex.exec(result)) !== null) {
-          const before = result.slice(lastIndex, match.index);
-          const matchedText = match[1];
-          tempResult += before + `<mark class="bg-yellow-200">${matchedText}</mark>`;
-          lastIndex = match.index + match[0].length;
-        }
-        tempResult += result.slice(lastIndex);
-        result = tempResult;
-      });
+    while ((match = regexMerged.exec(result)) !== null) {
+      const before = result.slice(lastIndex, match.index);
+      const matchedText = match[1];
+      tempResult += before + `<mark class="bg-yellow-200">${matchedText}</mark>`;
+      lastIndex = match.index + match[0].length;
+    }
+    tempResult += result.slice(lastIndex);
+    result = tempResult;
+  }
 
-      return result;
-    };
+  // Highlight chuỗi có ký tự đặc biệt (ví dụ: "HD_7900")
+  const specialMergedKeyword = keywords.join('[_-]?'); // Cho phép _ hoặc - giữa các từ khóa
+  if (specialMergedKeyword) {
+    const regexSpecialMerged = new RegExp(`(${specialMergedKeyword})(?![^<]*>)`, 'ig');
+    let tempResult = '';
+    let lastIndex = 0;
+    let match;
+
+    while ((match = regexSpecialMerged.exec(result)) !== null) {
+      const before = result.slice(lastIndex, match.index);
+      const matchedText = match[1];
+      tempResult += before + `<mark class="bg-yellow-200">${matchedText}</mark>`;
+      lastIndex = match.index + match[0].length;
+    }
+    tempResult += result.slice(lastIndex);
+    result = tempResult;
+  }
+
+  // Highlight từng từ khóa riêng lẻ
+  keywords.forEach(keyword => {
+    const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Khớp từ khóa riêng lẻ, không yêu cầu ranh giới từ để linh hoạt hơn
+    const regex = new RegExp(`(${escapedKeyword})(?![^<]*>)`, 'ig');
+    let tempResult = '';
+    let lastIndex = 0;
+    let match;
+
+    while ((match = regex.exec(result)) !== null) {
+      const before = result.slice(lastIndex, match.index);
+      const matchedText = match[1];
+      tempResult += before + `<mark class="bg-yellow-200">${matchedText}</mark>`;
+      lastIndex = match.index + match[0].length;
+    }
+    tempResult += result.slice(lastIndex);
+    result = tempResult;
+  });
+
+  return result;
+};
 
     // Hiển thị danh sách sơ đồ
     const displaySchematics = (schematics, rawQuery = '') => {
@@ -258,13 +330,28 @@
     // Cấu hình Fuse.js
     const fuseOptions = {
       keys: ['searchKey', 'fileType', 'size'],
-      threshold: 0.3,
-      ignoreLocation: true,
+      threshold: 0.4,
+      ignoreLocation: false,
       minMatchCharLength: 2,
       useExtendedSearch: true,
-      includeScore: true
+      includeScore: true,
+      includeMatches: true,
+      distance: 100
     };
+    // Kiểm tra thứ tự từ khóa
+    const checkKeywordOrder = (text, keywords) => {
+      const normalizedText = normalizeText(text);
+      let lastIndex = -1;
 
+      for (const keyword of keywords) {
+        const keywordIndex = normalizedText.indexOf(normalizeText(keyword), lastIndex + 1);
+        if (keywordIndex === -1 || keywordIndex < lastIndex) {
+          return false;
+        }
+        lastIndex = keywordIndex;
+      }
+      return true;
+    };
     // Cache tìm kiếm
     const searchCache = new Map();
 
@@ -326,24 +413,34 @@
         window.schematics = schematics;
         window.fuse = new Fuse(schematics, fuseOptions);
 
+        // Tính số lượng file cho mỗi loại
+        const fileCounts = {};
+        schematics.forEach(item => {
+          const type = normalizeText(getFileType(item)).replace('file ', '');
+          fileCounts[type] = (fileCounts[type] || 0) + 1;
+        });
+
+        // Tạo nút lọc chỉ cho loại file có từ 100 file trở lên
         const fileTypes = [...new Set(schematics.map(item => getFileType(item)))].sort();
         const filterButtons = document.getElementById('filterButtons');
         fileTypes.forEach(type => {
           const normalizedType = normalizeText(type).replace('file ', '');
-          const count = schematics.filter(item => normalizeText(getFileType(item)).replace('file ', '') === normalizedType).length;
-          const button = document.createElement('button');
-          button.className = 'px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 filter-btn flex items-center space-x-1 transition-all duration-200';
-          button.innerHTML = `
-            <span>${type}</span>
-            <span class="bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">${count}</span>
-          `;
-          button.dataset.type = normalizedType;
-          button.addEventListener('click', () => {
-            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
-            button.classList.add('active');
-            filterSchematics(normalizedType);
-          });
-          filterButtons.appendChild(button);
+          const count = fileCounts[normalizedType];
+          if (count >= 100) {
+            const button = document.createElement('button');
+            button.className = 'px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 filter-btn flex items-center space-x-1 transition-all duration-200';
+            button.innerHTML = `
+              <span>${type}</span>
+              <span class="bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">${count}</span>
+            `;
+            button.dataset.type = normalizedType;
+            button.addEventListener('click', () => {
+              document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+              button.classList.add('active');
+              filterSchematics(normalizedType);
+            });
+            filterButtons.appendChild(button);
+          }
         });
 
         displaySchematics(schematics);
@@ -358,46 +455,55 @@
       }
     };
 
-    // Xử lý tìm kiếm
-    const handleSearch = debounce((rawQuery) => {
-      const query = normalizeText(rawQuery);
-      const list = document.getElementById('schematicList');
+    // Cập nhật handleSearch
+const handleSearch = debounce((rawQuery) => {
+  const query = normalizeText(rawQuery);
+  const list = document.getElementById('schematicList');
 
-      if (!window.schematics) {
-        list.innerHTML = '<p class="text-center text-gray-500 col-span-full">Dữ liệu chưa được tải.</p>';
-        return;
-      }
+  if (!window.schematics) {
+    list.innerHTML = '<p class="text-center text-gray-500 col-span-full">Dữ liệu chưa được tải.</p>';
+    return;
+  }
 
-      if (!query) {
-        searchCache.clear();
-        displaySchematics(window.schematics, rawQuery);
-        return;
-      }
+  if (!query) {
+    searchCache.clear();
+    displaySchematics(window.schematics, rawQuery);
+    return;
+  }
 
-      if (searchCache.has(query)) {
-        displaySchematics(searchCache.get(query), rawQuery);
-        return;
-      }
+  if (searchCache.has(query)) {
+    displaySchematics(searchCache.get(query), rawQuery);
+    return;
+  }
 
-      const keywords = query.split(/\s+/).filter(Boolean);
-      const searchQuery = keywords.map(kw => `'${kw}`).join(' ');
-      const results = window.fuse.search(searchQuery)
-        .map(r => r.item)
-        .sort((a, b) => a.name.localeCompare(b.name));
+  const keywords = query.split(/\s+/).filter(Boolean);
+  const searchQuery = keywords.map(kw => `'${kw}`).join(' ');
+  let results = window.fuse.search(searchQuery)
+    .map(r => r.item)
+    .filter(item => checkKeywordOrder(item.name, keywords))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
-      searchCache.set(query, results);
-      if (searchCache.size > 100) {
-        searchCache.delete(searchCache.keys().next().value);
-      }
+  if (!results.length) {
+    results = window.fuse.search(searchQuery)
+      .map(r => r.item)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
 
-      displaySchematics(results, rawQuery);
-    }, 300);
+  searchCache.set(query, results);
+  if (searchCache.size > 100) {
+    searchCache.delete(searchCache.keys().next().value);
+  }
+
+  displaySchematics(results, rawQuery);
+}, 300);
 
     // Gắn sự kiện tìm kiếm và xóa
     document.getElementById('searchInput').addEventListener('input', e => {
       const clearButton = document.getElementById('clearSearch');
       clearButton.classList.toggle('hidden', !e.target.value);
       handleSearch(e.target.value.trim());
+      // Debug: Kiểm tra giá trị input
+      console.log('Search input value:', e.target.value);
     });
 
     document.getElementById('clearSearch').addEventListener('click', () => {
