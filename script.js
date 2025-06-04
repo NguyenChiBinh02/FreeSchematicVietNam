@@ -1,8 +1,11 @@
 let allFiles = [];
 let filteredFiles = [];
 let currentPage = 1;
-const filesPerPage = 50;
+let currentQuery = ''; // Lưu rawQuery toàn cục
+const filesPerPage = 20;
 const cache = new Map();
+const maxSearchResults = 500;
+const maxCacheSize = 50;
 
 // Hàm tiện ích
 const debounce = (func, wait) => {
@@ -27,7 +30,9 @@ const normalizeText = str => {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '');
+    .replace(/[\W_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 };
 
 // Lấy phần mở rộng file
@@ -58,78 +63,40 @@ const getFileIconPath = (type) => {
 // Highlight từ khóa
 const highlightAllKeywords = (text, rawQuery) => {
   if (!rawQuery || !text) return text;
-
-  const keywords = rawQuery.trim().split(/\s+/).filter(Boolean);
+  const keywords = normalizeText(rawQuery).split(/\s+/).filter(Boolean);
   let result = text;
-
-  // Highlight chuỗi hợp nhất (ví dụ: "hd 7900" → "hd7900")
-  const mergedKeyword = keywords.join('');
-  if (mergedKeyword) {
-    const escapedMerged = mergedKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regexMerged = new RegExp(`(${escapedMerged})(?![^<]*>)`, 'ig');
-    let tempResult = '';
-    let lastIndex = 0;
-    let match;
-
-    while ((match = regexMerged.exec(result)) !== null) {
-      const before = result.slice(lastIndex, match.index);
-      const matchedText = match[1];
-      tempResult += before + `<mark class="bg-yellow-200">${matchedText}</mark>`;
-      lastIndex = match.index + match[0].length;
-    }
-    tempResult += result.slice(lastIndex);
-    result = tempResult;
-  }
-
-  // Highlight chuỗi có ký tự đặc biệt (ví dụ: "HD_7900")
-  const specialMergedKeyword = keywords.join('[_-]?');
-  if (specialMergedKeyword) {
-    const regexSpecialMerged = new RegExp(`(${specialMergedKeyword})(?![^<]*>)`, 'ig');
-    let tempResult = '';
-    let lastIndex = 0;
-    let match;
-
-    while ((match = regexSpecialMerged.exec(result)) !== null) {
-      const before = result.slice(lastIndex, match.index);
-      const matchedText = match[1];
-      tempResult += before + `<mark class="bg-yellow-200">${matchedText}</mark>`;
-      lastIndex = match.index + match[0].length;
-    }
-    tempResult += result.slice(lastIndex);
-    result = tempResult;
-  }
-
-  // Highlight từng từ khóa riêng lẻ
   keywords.forEach(keyword => {
     const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`(${escapedKeyword})(?![^<]*>)`, 'ig');
-    let tempResult = '';
-    let lastIndex = 0;
-    let match;
-
-    while ((match = regex.exec(result)) !== null) {
-      const before = result.slice(lastIndex, match.index);
-      const matchedText = match[1];
-      tempResult += before + `<mark class="bg-yellow-200">${matchedText}</mark>`;
-      lastIndex = match.index + match[0].length;
-    }
-    tempResult += result.slice(lastIndex);
-    result = tempResult;
+    const regex = new RegExp(`(${escapedKeyword.replace(/\s/g, '[\\s_-]?')})(?![^<]*>)`, 'ig');
+    result = result.replace(regex, `<mark class="bg-yellow-200">$1</mark>`);
   });
-
   return result;
 };
 
 // Cấu hình Fuse.js
 const fuseOptions = {
-  keys: ['searchKey', 'fileType', 'size'],
-  threshold: 0.4,
-  ignoreLocation: false,
-  minMatchCharLength: 2,
+  keys: [
+    { name: 'searchKey', weight: 0.8 },
+    { name: 'fileType', weight: 0.15 },
+    { name: 'size', weight: 0.05 }
+  ],
+  threshold: 0.2,
+  ignoreLocation: true,
+  minMatchCharLength: 1,
   useExtendedSearch: true,
   includeScore: true,
-  includeMatches: true,
-  distance: 100
+  includeMatches: false,
+  distance: 1000,
+  maxPatternLength: 32
+};
+
+// Kiểm tra thứ tự từ khóa
+const checkKeywordOrder = (text, keywords) => {
+  if (keywords.length < 2) return true;
+  const normalizedText = normalizeText(text);
+  const pattern = keywords.map(kw => normalizeText(kw).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s_-]?');
+  const regex = new RegExp(pattern, 'i');
+  return regex.test(normalizedText);
 };
 
 // Cache tìm kiếm
@@ -172,7 +139,12 @@ const displayFiles = (files, rawQuery = '') => {
   const end = start + filesPerPage;
   const paginatedFiles = files.slice(start, end);
 
-  paginatedFiles.forEach(file => {
+  const renderBatch = (items, index = 0) => {
+    if (index >= items.length) {
+      updatePagination();
+      return;
+    }
+    const file = items[index];
     const name = highlightAllKeywords(decodeHTMLEntities(file.name || 'Không xác định'), rawQuery);
     const type = getFileType(file);
     const size = file.size || 'Không xác định';
@@ -188,25 +160,28 @@ const displayFiles = (files, rawQuery = '') => {
           <p class="text-sm text-gray-500">Loại: ${type}</p>
           <p class="text-sm text-gray-500">Dung lượng: ${size}</p>
           <a href="${file.url || '#'}" target="_blank" 
-             class="text-blue-500 hover:underline mt-2 inline-block font-medium transition-colors duration-200 
-             ${!file.url ? 'pointer-events-none opacity-50' : ''}">
-            Tải xuống
+             class="text-blue-500 hover:underline mt-2 inline-block rounded" 
+             ${!file.url ? 'pointer-events-none opacity-50' : ''}>
+             Tải file
           </a>
         </div>
       </div>
     `;
     list.appendChild(div);
-  });
+    requestAnimationFrame(() => renderBatch(items, index + 1));
+  };
 
-  updatePagination();
+  renderBatch(paginatedFiles);
 };
 
 // Cập nhật phân trang
 const updatePagination = () => {
   const totalPages = Math.ceil(filteredFiles.length / filesPerPage);
   document.getElementById('pageInfo').textContent = `Trang ${currentPage} / ${totalPages}`;
-  document.querySelector('button[onclick="prevPage()"]').disabled = currentPage === 1;
-  document.querySelector('button[onclick="nextPage()"]').disabled = currentPage === totalPages;
+  const prevButton = document.querySelector('button[onclick="prevPage()"]');
+  const nextButton = document.querySelector('button[onclick="nextPage()"]');
+  if (prevButton) prevButton.disabled = currentPage === 1;
+  if (nextButton) nextButton.disabled = currentPage === totalPages;
 };
 
 // Tải dữ liệu
@@ -280,7 +255,8 @@ const loadData = async () => {
 };
 
 // Xử lý tìm kiếm
-const handleSearch = debounce((rawQuery) => {
+const handleSearch = debounce(async (rawQuery) => {
+  currentQuery = rawQuery; // Lưu rawQuery
   const query = normalizeText(rawQuery);
   const list = document.getElementById('fileList');
 
@@ -304,18 +280,51 @@ const handleSearch = debounce((rawQuery) => {
     return;
   }
 
-  const results = window.fuse.search(query).map(r => r.item);
-  searchCache.set(query, results);
-  if (searchCache.size > 100) {
-    searchCache.delete(searchCache.keys().next().value);
-  }
+  try {
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const keywords = query.split(/\s+/).filter(Boolean);
+    const searchQuery = keywords.map(kw => `'${kw}`).join(' ');
 
-  filteredFiles = results;
-  currentPage = 1;
-  displayFiles(filteredFiles, rawQuery);
+    const processBatch = (items, batchSize = 1000) => {
+      const results = [];
+      for (let i = 0; i < items.length; i += batchSize) {
+        const batch = items.slice(i, i + batchSize);
+        results.push(...batch.filter(item => checkKeywordOrder(item.name, keywords)));
+      }
+      return results;
+    };
+
+    let results = window.fuse.search(searchQuery)
+      .slice(0, maxSearchResults)
+      .map(r => r.item);
+
+    if (keywords.length >= 2) {
+      results = processBatch(results);
+    }
+
+    if (!results.length) {
+      results = window.fuse.search(searchQuery)
+        .slice(0, maxSearchResults)
+        .map(r => r.item);
+    }
+
+    results.sort((a, b) => a.name.localeCompare(b.name));
+
+    searchCache.set(query, results);
+    if (searchCache.size > maxCacheSize) {
+      searchCache.delete(searchCache.keys().next().value);
+    }
+
+    filteredFiles = results;
+    currentPage = 1;
+    displayFiles(filteredFiles, rawQuery);
+  } catch (error) {
+    console.error('Lỗi tìm kiếm:', error);
+    list.innerHTML = '<p class="text-red-500 text-center col-span-full">Lỗi tìm kiếm. Vui lòng thử lại.</p>';
+  }
 }, 300);
 
-// Gắn sự kiện tìm kiếm và xóa
+// Gắn sự kiện
 document.getElementById('searchInput').addEventListener('input', e => {
   const clearButton = document.getElementById('clearSearch');
   clearButton.classList.toggle('hidden', !e.target.value);
@@ -334,7 +343,7 @@ document.getElementById('clearSearch').addEventListener('click', () => {
 function prevPage() {
   if (currentPage > 1) {
     currentPage--;
-    displayFiles(filteredFiles);
+    displayFiles(filteredFiles, currentQuery); // Truyền currentQuery
     scrollToTop();
   }
 }
@@ -342,7 +351,7 @@ function prevPage() {
 function nextPage() {
   if (currentPage < Math.ceil(filteredFiles.length / filesPerPage)) {
     currentPage++;
-    displayFiles(filteredFiles);
+    displayFiles(filteredFiles, currentQuery); // Truyền currentQuery
     scrollToTop();
   }
 }
